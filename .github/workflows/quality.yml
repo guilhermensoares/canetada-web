@@ -1,0 +1,42 @@
+name: Public Release Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Verify local image imports
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path('.')
+          missing=[]
+          for p in root.glob('src/**/*.ts*'):
+              text=p.read_text(encoding='utf-8')
+              for rel in re.findall(r'import\s+[^;]+?from\s+["\'](\.[^"\']+\.(?:png|jpg|jpeg|webp|svg))["\']', text):
+                  target=(p.parent/rel).resolve()
+                  if not target.exists(): missing.append(f'{p}: {rel}')
+          if missing:
+              print('Missing local image imports:')
+              print('\n'.join(missing))
+              sys.exit(1)
+          print('All statically imported local images exist.')
+          PY
+      - name: Lint
+        run: bun run lint
+      - name: Tests
+        run: bunx vitest run
+      - name: Production build
+        run: bun run build
